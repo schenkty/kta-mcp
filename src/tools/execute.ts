@@ -238,17 +238,26 @@ The "options" field in each operation is passed as the last argument (common for
     }
   );
 
-  // ── Anchor Execute (resolver, FX, metadata) ────────────────────────
+  // ── Anchor Execute (all anchor services, resolver, metadata, lib) ──
   server.tool(
     "keeta_anchor_execute",
-    `Execute anchor and FX operations on the Keeta Network.
+    `Execute anchor operations on the Keeta Network. Covers all anchor services and utilities.
 
-Subtargets:
-  - "resolver" → call methods on AnchorResolver (getRootMetadata, etc.)
-  - "fx_client" → call methods on FX.Client (getQuotes, listPossibleConversions, createExchange, etc.)
-  - "metadata" → call static methods on Resolver.Metadata (formatMetadata, fullyResolveValuizable, etc.)
+Subtargets — Services:
+  - "fx_client" → FX.Client (getQuotes, listPossibleConversions, createExchange, etc.)
+  - "kyc_client" → KYC.Client (createVerification, getCertificates, getSupportedCountries)
+  - "asset_movement_client" → AssetMovement.Client (getProvidersForTransfer, getProviderByID — then call provider methods like initiateTransfer, getTransferStatus, createPersistentForwardingAddress, listForwardingAddresses, listTransactions, shareKYCAttributes)
+  - "username_client" → Username.Client (resolve, resolveMulti, claimUsername, search, getProvider)
+  - "notification_client" → Notification.Client (getProviders, getProvider — then call provider methods like registerTarget, listTargets, deleteTarget, createSubscription, listSubscriptions, deleteSubscription)
 
-Use keeta_list_sdk_methods with targets "AnchorResolver", "AnchorFXClient", or "AnchorMetadata" to discover methods.
+Subtargets — Lib:
+  - "resolver" → Resolver (getRootMetadata, lookup, etc.)
+  - "metadata" → Resolver.Metadata static methods (formatMetadata, fullyResolveValuizable, etc.)
+  - "certificates" → Certificates module (Certificate class, parsing, validation)
+  - "encrypted_container" → EncryptedContainer (encrypt/decrypt sensitive data)
+  - "uri" → URI utilities (parse, construct anchor URIs)
+
+Use keeta_list_sdk_methods with the corresponding Anchor* target to discover available methods.
 
 Arguments are auto-resolved (see keeta_client_execute for resolution rules).`,
     {
@@ -264,7 +273,18 @@ Arguments are auto-resolved (see keeta_client_execute for resolution rules).`,
         .default(0)
         .describe("Account derivation index"),
       subtarget: z
-        .enum(["resolver", "fx_client", "metadata"])
+        .enum([
+          "fx_client",
+          "kyc_client",
+          "asset_movement_client",
+          "username_client",
+          "notification_client",
+          "resolver",
+          "metadata",
+          "certificates",
+          "encrypted_container",
+          "uri",
+        ])
         .describe("Which anchor subsystem to operate on"),
       method: z.string().describe("Method name to call"),
       args: z
@@ -338,6 +358,50 @@ Arguments are auto-resolved (see keeta_client_execute for resolution rules).`,
           result = await fn.apply(fxClient, resolved);
           break;
         }
+        case "kyc_client": {
+          const kycClient = new KeetaAnchor.KYC.Client(userClient, { root } as any);
+          const fn = (kycClient as any)[method];
+          if (typeof fn !== "function") {
+            throw new Error(
+              `"${method}" is not a method on KYC.Client. Use keeta_list_sdk_methods with target "AnchorKYCClient".`
+            );
+          }
+          result = await fn.apply(kycClient, resolved);
+          break;
+        }
+        case "asset_movement_client": {
+          const amClient = new KeetaAnchor.AssetMovement.Client(userClient, { root } as any);
+          const fn = (amClient as any)[method];
+          if (typeof fn !== "function") {
+            throw new Error(
+              `"${method}" is not a method on AssetMovement.Client. Use keeta_list_sdk_methods with target "AnchorAssetMovementClient".`
+            );
+          }
+          result = await fn.apply(amClient, resolved);
+          break;
+        }
+        case "username_client": {
+          const usernameClient = new KeetaAnchor.Username.Client(userClient, { root } as any);
+          const fn = (usernameClient as any)[method];
+          if (typeof fn !== "function") {
+            throw new Error(
+              `"${method}" is not a method on Username.Client. Use keeta_list_sdk_methods with target "AnchorUsernameClient".`
+            );
+          }
+          result = await fn.apply(usernameClient, resolved);
+          break;
+        }
+        case "notification_client": {
+          const notifClient = new KeetaAnchor.Notification.Client(userClient, { root } as any);
+          const fn = (notifClient as any)[method];
+          if (typeof fn !== "function") {
+            throw new Error(
+              `"${method}" is not a method on Notification.Client. Use keeta_list_sdk_methods with target "AnchorNotificationClient".`
+            );
+          }
+          result = await fn.apply(notifClient, resolved);
+          break;
+        }
         case "metadata": {
           const fn = (KeetaAnchor.lib.Resolver.Metadata as any)[method];
           if (typeof fn !== "function") {
@@ -346,6 +410,50 @@ Arguments are auto-resolved (see keeta_client_execute for resolution rules).`,
             );
           }
           result = await fn.apply(KeetaAnchor.lib.Resolver.Metadata, resolved);
+          break;
+        }
+        case "certificates": {
+          const fn = (KeetaAnchor.lib.Certificates as any)[method];
+          if (typeof fn !== "function") {
+            // Try Certificate class constructor/static
+            const CertClass = (KeetaAnchor.lib.Certificates as any).Certificate;
+            if (CertClass && typeof CertClass[method] === "function") {
+              result = await CertClass[method].apply(CertClass, resolved);
+              break;
+            }
+            throw new Error(
+              `"${method}" is not a method on Certificates. Use keeta_list_sdk_methods with target "AnchorCertificates".`
+            );
+          }
+          result = await fn.apply(KeetaAnchor.lib.Certificates, resolved);
+          break;
+        }
+        case "encrypted_container": {
+          const fn = (KeetaAnchor.lib.EncryptedContainer as any)[method];
+          if (typeof fn !== "function") {
+            // Try prototype method by constructing with first arg
+            if (KeetaAnchor.lib.EncryptedContainer.prototype &&
+                typeof KeetaAnchor.lib.EncryptedContainer.prototype[method as keyof typeof KeetaAnchor.lib.EncryptedContainer.prototype] === "function") {
+              const instance = new KeetaAnchor.lib.EncryptedContainer(resolved[0] as any);
+              const instanceFn = (instance as any)[method];
+              result = await instanceFn.apply(instance, resolved.slice(1));
+              break;
+            }
+            throw new Error(
+              `"${method}" is not a method on EncryptedContainer. Use keeta_list_sdk_methods with target "AnchorEncryptedContainer".`
+            );
+          }
+          result = await fn.apply(KeetaAnchor.lib.EncryptedContainer, resolved);
+          break;
+        }
+        case "uri": {
+          const fn = (KeetaAnchor.lib.URI as any)[method];
+          if (typeof fn !== "function") {
+            throw new Error(
+              `"${method}" is not a method on URI. Use keeta_list_sdk_methods with target "AnchorURI".`
+            );
+          }
+          result = await fn.apply(KeetaAnchor.lib.URI, resolved);
           break;
         }
       }

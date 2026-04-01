@@ -16,16 +16,28 @@ export function registerDiscoveryTools(server: McpServer) {
     `Discover available methods and properties on Keeta SDK objects at runtime. Use this FIRST to understand what operations are available before calling execute tools.
 
 Targets:
+  Core SDK:
   - "Client" → read-only network client (getAccountInfo, getBalance, getAllBalances, getHeadBlock, getBlock, etc.)
   - "UserClient" → authenticated client (send, setInfo, generateIdentifier, allBalances, head, chain, updatePermissions, createSwapRequest, etc.)
   - "Builder" → transaction builder from UserClient.initBuilder() (send, setInfo, modifyTokenSupply, computeBlocks, publish, etc.)
   - "Account" → static methods on KeetaNet.lib.Account (generateRandomSeed, fromSeed, fromPublicKeyString, generateNetworkAddress, etc.)
   - "Block" → static Block utilities (Builder, OperationType, NO_PREVIOUS, etc.)
   - "Permissions" → Permissions class
-  - "AnchorResolver" → anchor metadata resolver (getRootMetadata, etc.)
-  - "AnchorFXClient" → FX anchor client (getQuotes, listPossibleConversions, etc.)
+  - "Config" → network configuration (getDefaultConfig, etc.)
+
+  Anchor SDK — Services:
+  - "AnchorFXClient" → FX/swap client (getQuotes, listPossibleConversions, createExchange, etc.)
+  - "AnchorKYCClient" → KYC identity verification client (createVerification, getCertificates, getSupportedCountries)
+  - "AnchorAssetMovementClient" → cross-chain/cross-rail asset transfer client (getProvidersForTransfer, initiateTransfer, createPersistentForwardingAddress, listTransactions, shareKYCAttributes, etc.)
+  - "AnchorUsernameClient" → on-chain username management client (resolve, claimUsername, releaseUsername, search, resolveMulti)
+  - "AnchorNotificationClient" → push notification client (registerTarget, listTargets, deleteTarget, createSubscription, listSubscriptions, deleteSubscription)
+
+  Anchor SDK — Lib:
+  - "AnchorResolver" → anchor metadata resolver (getRootMetadata, lookup, etc.)
   - "AnchorMetadata" → anchor metadata utilities (formatMetadata, fullyResolveValuizable, etc.)
-  - "Config" → network configuration (getDefaultConfig, etc.)`,
+  - "AnchorCertificates" → X.509 certificate utilities for KYC/identity
+  - "AnchorEncryptedContainer" → encrypted data container for sensitive attributes
+  - "AnchorURI" → URI parsing and construction utilities`,
     {
       target: z
         .enum([
@@ -35,10 +47,17 @@ Targets:
           "Account",
           "Block",
           "Permissions",
-          "AnchorResolver",
-          "AnchorFXClient",
-          "AnchorMetadata",
           "Config",
+          "AnchorFXClient",
+          "AnchorKYCClient",
+          "AnchorAssetMovementClient",
+          "AnchorUsernameClient",
+          "AnchorNotificationClient",
+          "AnchorResolver",
+          "AnchorMetadata",
+          "AnchorCertificates",
+          "AnchorEncryptedContainer",
+          "AnchorURI",
         ])
         .describe("SDK object to introspect"),
       network: z
@@ -141,6 +160,60 @@ Targets:
           statics = Object.getOwnPropertyNames(KeetaNet.Client.Config).filter(
             (n) =>
               typeof (KeetaNet.Client.Config as any)[n] === "function"
+          );
+          break;
+        }
+        case "AnchorKYCClient": {
+          statics = Object.getOwnPropertyNames(
+            KeetaAnchor.KYC.Client.prototype
+          ).filter((n) => n !== "constructor");
+          break;
+        }
+        case "AnchorAssetMovementClient": {
+          statics = Object.getOwnPropertyNames(
+            KeetaAnchor.AssetMovement.Client.prototype
+          ).filter((n) => n !== "constructor");
+          break;
+        }
+        case "AnchorUsernameClient": {
+          statics = Object.getOwnPropertyNames(
+            KeetaAnchor.Username.Client.prototype
+          ).filter((n) => n !== "constructor");
+          break;
+        }
+        case "AnchorNotificationClient": {
+          statics = Object.getOwnPropertyNames(
+            KeetaAnchor.Notification.Client.prototype
+          ).filter((n) => n !== "constructor");
+          break;
+        }
+        case "AnchorCertificates": {
+          statics = Object.getOwnPropertyNames(KeetaAnchor.lib.Certificates).filter(
+            (n) => typeof (KeetaAnchor.lib.Certificates as any)[n] === "function"
+          );
+          // Also show Certificate class methods if available
+          if ((KeetaAnchor.lib.Certificates as any).Certificate?.prototype) {
+            methods = Object.getOwnPropertyNames(
+              (KeetaAnchor.lib.Certificates as any).Certificate.prototype
+            ).filter((n) => n !== "constructor");
+          }
+          break;
+        }
+        case "AnchorEncryptedContainer": {
+          if (KeetaAnchor.lib.EncryptedContainer?.prototype) {
+            methods = Object.getOwnPropertyNames(
+              KeetaAnchor.lib.EncryptedContainer.prototype
+            ).filter((n) => n !== "constructor");
+          }
+          statics = Object.getOwnPropertyNames(KeetaAnchor.lib.EncryptedContainer).filter(
+            (n) =>
+              typeof (KeetaAnchor.lib.EncryptedContainer as any)[n] === "function"
+          );
+          break;
+        }
+        case "AnchorURI": {
+          statics = Object.getOwnPropertyNames(KeetaAnchor.lib.URI).filter(
+            (n) => typeof (KeetaAnchor.lib.URI as any)[n] === "function"
           );
           break;
         }

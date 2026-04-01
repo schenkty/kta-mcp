@@ -296,6 +296,93 @@ keeta_anchor_execute({
 })
 ```
 
+### KYC Identity Verification
+
+```
+// Discover KYC methods first
+keeta_list_sdk_methods({ target: "AnchorKYCClient" })
+
+// Start a KYC verification request
+keeta_anchor_execute({
+  network: "test", seed, subtarget: "kyc_client",
+  method: "createVerification",
+  args: [{ account: "keeta_user...", countryCodes: ["US"] }]
+})
+
+// Get supported countries
+keeta_anchor_execute({ network: "test", subtarget: "kyc_client", method: "getSupportedCountries", args: [] })
+```
+
+### Cross-Chain Asset Movement
+
+```
+// Find providers for a specific asset transfer
+keeta_anchor_execute({
+  network: "test", seed, subtarget: "asset_movement_client",
+  method: "getProvidersForTransfer",
+  args: [{ asset: { token: "keeta_usdc..." }, from: { location: "keeta" }, to: { location: "base" } }]
+})
+
+// Provider methods (after getting a provider): initiateTransfer, getTransferStatus,
+// createPersistentForwardingAddress, listForwardingAddresses, listTransactions, shareKYCAttributes
+```
+
+### Username Management
+
+```
+// Resolve a username to an account
+keeta_anchor_execute({
+  network: "test", subtarget: "username_client",
+  method: "resolve",
+  args: ["alice@provider"]
+})
+
+// Search usernames
+keeta_anchor_execute({
+  network: "test", subtarget: "username_client",
+  method: "search",
+  args: [{ search: "alice" }]
+})
+
+// Claim a username (requires funded account)
+keeta_anchor_execute({
+  network: "test", seed, subtarget: "username_client",
+  method: "claimUsername",
+  args: ["alice@provider", { account: "keeta_user..." }]
+})
+```
+
+### Push Notifications
+
+```
+// Get notification providers
+keeta_anchor_execute({
+  network: "test", subtarget: "notification_client",
+  method: "getProviders",
+  args: []
+})
+// Provider methods: registerTarget, listTargets, deleteTarget,
+// createSubscription, listSubscriptions, deleteSubscription
+```
+
+### Encrypted Containers & Certificates
+
+```
+// Create an encrypted container for sensitive data
+keeta_anchor_execute({
+  network: "test", subtarget: "encrypted_container",
+  method: "fromPlaintext",
+  args: ["BUFFER_B64:aGVsbG8gd29ybGQ="]
+})
+
+// Parse a Keeta URI
+keeta_anchor_execute({
+  network: "test", subtarget: "uri",
+  method: "parseKeetaURI",
+  args: ["keeta://..."]
+})
+```
+
 ---
 
 ## Building an Anchor (Agent Guide)
@@ -381,6 +468,8 @@ keeta_anchor_execute({
 
 ## SDK Discovery Targets
 
+### Core SDK
+
 | Target | What It Exposes | When To Use |
 |---|---|---|
 | `Client` | Read-only methods: `getAccountInfo`, `getBalance`, `getAllBalances`, `getHeadBlock`, `getBlock`, `getHistory`, `getTokenSupply`, `getNetworkStatus`, `getPeers`, `getVersion`, `getLedgerChecksum`, `getAllCertificates`, `getAllRepresentativeInfo` | Querying the network without an account |
@@ -389,10 +478,27 @@ keeta_anchor_execute({
 | `Account` | Static utilities: `fromSeed`, `fromPublicKeyString`, `generateRandomSeed`, `generateNetworkAddress`, `seedFromPassphrase`, `isIdentifierKeyType` + `AccountKeyAlgorithm` enum | Account creation and key management |
 | `Block` | Block construction: `Builder`, `OperationType` enum, `AdjustMethod` enum, `NO_PREVIOUS` | Low-level block building |
 | `Permissions` | Permission construction methods | Access control |
-| `AnchorResolver` | `getRootMetadata` and resolution methods | Discovering anchor services |
-| `AnchorFXClient` | `getQuotes`, `listPossibleConversions`, `createExchange` + `resolver.listTokens` | FX operations and swaps |
-| `AnchorMetadata` | `formatMetadata`, `fullyResolveValuizable` | Building and parsing anchor metadata |
 | `Config` | `getDefaultConfig` | Network configuration |
+
+### Anchor Services
+
+| Target | What It Exposes | When To Use |
+|---|---|---|
+| `AnchorFXClient` | `getQuotes`, `listPossibleConversions`, `createExchange` + `resolver.listTokens` | Foreign exchange and token swaps |
+| `AnchorKYCClient` | `createVerification`, `getCertificates`, `getSupportedCountries` | Identity verification (KYC/KYB) |
+| `AnchorAssetMovementClient` | `getProvidersForTransfer`, `getProviderByID` → provider: `initiateTransfer`, `getTransferStatus`, `createPersistentForwardingAddress`, `listForwardingAddresses`, `listTransactions`, `shareKYCAttributes` | Cross-chain/cross-rail asset transfers (Keeta ↔ Base, SWIFT, ACH, etc.) |
+| `AnchorUsernameClient` | `resolve`, `resolveMulti`, `claimUsername`, `search`, `getProvider`, `signUsernameTransfer` → provider: `resolve`, `claimUsername`, `releaseUsername`, `search`, `isUsernameValid` | Human-readable on-chain usernames |
+| `AnchorNotificationClient` | `getProviders`, `getProvider` → provider: `registerTarget`, `listTargets`, `deleteTarget`, `createSubscription`, `listSubscriptions`, `deleteSubscription` | Push notification subscriptions (FCM, etc.) |
+
+### Anchor Lib
+
+| Target | What It Exposes | When To Use |
+|---|---|---|
+| `AnchorResolver` | `getRootMetadata`, `lookup`, and resolution methods | Discovering anchor services and metadata |
+| `AnchorMetadata` | `formatMetadata`, `fullyResolveValuizable` | Building and parsing anchor metadata |
+| `AnchorCertificates` | `Certificate`, `CertificateBuilder`, `SensitiveAttribute`, `SharableCertificateAttributes` — with instance methods: `setPlainAttribute`, `setSensitiveAttribute`, `getAttributeValue` | X.509 certificate management for KYC/identity |
+| `AnchorEncryptedContainer` | Static: `fromEncryptedBuffer`, `fromEncodedBuffer`, `fromPlaintext` — Instance: `grantAccess`, `revokeAccess`, `getPlaintext`, `principals`, `verifySignature` | Encrypting sensitive data with per-account access control |
+| `AnchorURI` | `assertKeetaURIString`, `encodeKeetaURI`, `parseKeetaURI` | Keeta URI parsing and construction |
 
 ---
 
@@ -415,7 +521,7 @@ kta-mcp/
 ## Dependencies
 
 - [`@keetanetwork/keetanet-client`](https://github.com/KeetaNetwork/keetanet-client) — Core Keeta SDK (accounts, tokens, transactions, permissions)
-- [`@keetanetwork/anchor`](https://github.com/KeetaNetwork/anchor) — Anchor SDK (FX, resolver, metadata, cross-chain bridges)
+- [`@keetanetwork/anchor`](https://github.com/KeetaNetwork/anchor) — Anchor SDK (FX, KYC, asset movement, usernames, notifications, resolver, certificates, encrypted containers, URI)
 - [`@modelcontextprotocol/sdk`](https://github.com/modelcontextprotocol/typescript-sdk) — MCP server framework
 - [`zod`](https://zod.dev/) — Schema validation for tool inputs
 
