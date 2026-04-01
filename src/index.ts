@@ -8,15 +8,22 @@ import { registerExecuteTools } from "./tools/execute.js";
 
 const KEETA_DOCS_MCP = "https://docs.keeta.com/~gitbook/mcp";
 
-const server = new McpServer({
-  name: "keeta-mcp",
-  version: "2.1.0",
-  description: `Dynamic MCP server for the Keeta Network — a Layer 1 blockchain for payments, asset transfers, and cross-chain interoperability.
+const INSTRUCTIONS = `Dynamic MCP server for the Keeta Network — a Layer 1 blockchain for payments, asset transfers, and cross-chain interoperability.
 
 IMPORTANT FOR BUILDERS: Before building on Keeta, agents MUST also connect to the Keeta documentation MCP server at ${KEETA_DOCS_MCP} (GitBook streamable HTTP transport) to understand the protocol, architecture, and anchor system. This SDK server provides the tools to execute operations; the docs MCP provides the knowledge to use them correctly.
 
-Recommended MCP configuration pairs this server (keeta-sdk) with the docs server (keeta-docs) for a complete development experience.`,
-});
+Recommended MCP configuration pairs this server (keeta-sdk) with the docs server (keeta-docs) for a complete development experience.`;
+
+const server = new McpServer(
+  {
+    name: "keeta-mcp",
+    version: "2.1.0",
+    description: INSTRUCTIONS,
+  },
+  {
+    instructions: INSTRUCTIONS,
+  }
+);
 
 registerBootstrapTools(server);
 registerDiscoveryTools(server);
