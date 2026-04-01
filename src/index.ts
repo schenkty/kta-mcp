@@ -2,29 +2,25 @@
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { registerAccountTools } from "./tools/accounts.js";
-import { registerTokenTools } from "./tools/tokens.js";
-import { registerTransactionTools } from "./tools/transactions.js";
-import { registerAnchorTools } from "./tools/anchors.js";
-import { registerNetworkTools } from "./tools/network.js";
+import { registerBootstrapTools } from "./tools/bootstrap.js";
+import { registerDiscoveryTools } from "./tools/discovery.js";
+import { registerExecuteTools } from "./tools/execute.js";
 
 const server = new McpServer({
   name: "keeta-mcp",
-  version: "1.0.0",
+  version: "2.0.0",
   description:
-    "MCP server for the Keeta Network — manage accounts, tokens, transactions, anchors, and FX operations on the KeetaNet L1 blockchain.",
+    "Dynamic MCP server for the Keeta Network — a Layer 1 blockchain for payments, asset transfers, and cross-chain interoperability. Provides runtime-introspectable tools that auto-adapt to SDK changes. Supports account management, native tokenization, atomic swaps, anchors (cross-chain bridges to SWIFT/ACH/other blockchains), FX operations, permissions, and certificates.",
 });
 
-registerAccountTools(server);
-registerTokenTools(server);
-registerTransactionTools(server);
-registerAnchorTools(server);
-registerNetworkTools(server);
+registerBootstrapTools(server);
+registerDiscoveryTools(server);
+registerExecuteTools(server);
 
 async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
-  console.error("Keeta MCP server running on stdio");
+  console.error("Keeta MCP server v2.0.0 running on stdio");
 }
 
 main().catch((err) => {
