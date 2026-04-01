@@ -72,15 +72,21 @@ This MCP server uses a **discover-then-execute** pattern instead of hardcoded to
 │  keeta_request_test_tokens   → fund an account on testnet           │
 │  keeta_get_network_config    → get network ID, base token, etc.     │
 ├─────────────────────────────────────────────────────────────────────┤
-│  DISCOVERY TOOL (introspection)                                     │
-│  keeta_list_sdk_methods      → list all methods/properties/enums    │
-│                                 on any SDK class at runtime         │
+│  DISCOVERY TOOL (runtime introspection)                              │
+│  keeta_list_sdk_methods      → introspect any SDK object:           │
+│    "AnchorCatalog"           → auto-discover ALL anchor services    │
+│    "AnchorService:<Name>"    → drill into any service by name       │
+│    "AnchorLib:<Name>"        → drill into any lib module by name    │
+│    "Client/UserClient/..."   → core SDK introspection               │
 ├─────────────────────────────────────────────────────────────────────┤
 │  EXECUTION TOOLS (generic, call any SDK method by name)             │
 │  keeta_client_execute        → read-only network queries            │
 │  keeta_user_client_execute   → authenticated account operations     │
 │  keeta_builder_execute       → batch operations → publish           │
-│  keeta_anchor_execute        → anchor/FX/resolver operations        │
+│  keeta_anchor_execute        → ANY anchor service or lib module     │
+│    subtarget: "service"      → dynamic: FX, KYC, AssetMovement...  │
+│    subtarget: "lib"          → dynamic: Resolver, Certificates...   │
+│    subtarget: "metadata"     → Resolver.Metadata shortcuts          │
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -270,7 +276,7 @@ keeta_user_client_execute({
 ### FX Swap via Anchor
 
 ```
-1. keeta_anchor_execute({ network: "test", subtarget: "fx_client", method: "getQuotes", args: [{ from: "keeta_kta...", to: "$USDC", amount: "BIGINT:1000000", affinity: "from" }] })
+1. keeta_anchor_execute({ network: "test", subtarget: "service", serviceName: "FX", method: "getQuotes", args: [{ from: "keeta_kta...", to: "$USDC", amount: "BIGINT:1000000", affinity: "from" }] })
 2. Use returned quote to execute the exchange
 ```
 
@@ -290,7 +296,8 @@ keeta_user_client_execute({
 ```
 keeta_anchor_execute({
   network: "test",
-  subtarget: "resolver",
+  subtarget: "lib",
+  libModule: "Resolver",
   method: "getRootMetadata",
   args: []
 })
@@ -304,13 +311,13 @@ keeta_list_sdk_methods({ target: "AnchorKYCClient" })
 
 // Start a KYC verification request
 keeta_anchor_execute({
-  network: "test", seed, subtarget: "kyc_client",
+  network: "test", seed, subtarget: "service", serviceName: "KYC",
   method: "createVerification",
   args: [{ account: "keeta_user...", countryCodes: ["US"] }]
 })
 
 // Get supported countries
-keeta_anchor_execute({ network: "test", subtarget: "kyc_client", method: "getSupportedCountries", args: [] })
+keeta_anchor_execute({ network: "test", subtarget: "service", serviceName: "KYC", method: "getSupportedCountries", args: [] })
 ```
 
 ### Cross-Chain Asset Movement
@@ -318,7 +325,7 @@ keeta_anchor_execute({ network: "test", subtarget: "kyc_client", method: "getSup
 ```
 // Find providers for a specific asset transfer
 keeta_anchor_execute({
-  network: "test", seed, subtarget: "asset_movement_client",
+  network: "test", seed, subtarget: "service", serviceName: "AssetMovement",
   method: "getProvidersForTransfer",
   args: [{ asset: { token: "keeta_usdc..." }, from: { location: "keeta" }, to: { location: "base" } }]
 })
@@ -332,21 +339,21 @@ keeta_anchor_execute({
 ```
 // Resolve a username to an account
 keeta_anchor_execute({
-  network: "test", subtarget: "username_client",
+  network: "test", subtarget: "service", serviceName: "Username",
   method: "resolve",
   args: ["alice@provider"]
 })
 
 // Search usernames
 keeta_anchor_execute({
-  network: "test", subtarget: "username_client",
+  network: "test", subtarget: "service", serviceName: "Username",
   method: "search",
   args: [{ search: "alice" }]
 })
 
 // Claim a username (requires funded account)
 keeta_anchor_execute({
-  network: "test", seed, subtarget: "username_client",
+  network: "test", seed, subtarget: "service", serviceName: "Username",
   method: "claimUsername",
   args: ["alice@provider", { account: "keeta_user..." }]
 })
@@ -357,7 +364,7 @@ keeta_anchor_execute({
 ```
 // Get notification providers
 keeta_anchor_execute({
-  network: "test", subtarget: "notification_client",
+  network: "test", subtarget: "service", serviceName: "Notification",
   method: "getProviders",
   args: []
 })
@@ -370,14 +377,14 @@ keeta_anchor_execute({
 ```
 // Create an encrypted container for sensitive data
 keeta_anchor_execute({
-  network: "test", subtarget: "encrypted_container",
+  network: "test", subtarget: "lib", libModule: "EncryptedContainer",
   method: "fromPlaintext",
   args: ["BUFFER_B64:aGVsbG8gd29ybGQ="]
 })
 
 // Parse a Keeta URI
 keeta_anchor_execute({
-  network: "test", subtarget: "uri",
+  network: "test", subtarget: "lib", libModule: "URI",
   method: "parseKeetaURI",
   args: ["keeta://..."]
 })
@@ -480,25 +487,59 @@ keeta_anchor_execute({
 | `Permissions` | Permission construction methods | Access control |
 | `Config` | `getDefaultConfig` | Network configuration |
 
-### Anchor Services
+### Anchor SDK (Fully Dynamic)
 
-| Target | What It Exposes | When To Use |
+Anchor services and lib modules are **not hardcoded** — they are auto-discovered from SDK exports at runtime. When the SDK adds new services, they appear automatically.
+
+**Discovery flow:**
+```
+keeta_list_sdk_methods({ target: "AnchorCatalog" })
+  → lists all services and lib modules with their methods
+
+keeta_list_sdk_methods({ target: "AnchorService:FX" })
+  → drill into a specific service
+
+keeta_list_sdk_methods({ target: "AnchorLib:Resolver" })
+  → drill into a specific lib module
+```
+
+**Execution flow:**
+```
+keeta_anchor_execute({
+  subtarget: "service",
+  serviceName: "FX",        ← any service name from the catalog
+  method: "getQuotes",
+  args: [...]
+})
+
+keeta_anchor_execute({
+  subtarget: "lib",
+  libModule: "Resolver",    ← any lib module from the catalog
+  method: "getRootMetadata",
+  args: []
+})
+```
+
+**Currently discovered services** (as of anchor SDK v0.0.49):
+
+| Service | Methods | Purpose |
 |---|---|---|
-| `AnchorFXClient` | `getQuotes`, `listPossibleConversions`, `createExchange` + `resolver.listTokens` | Foreign exchange and token swaps |
-| `AnchorKYCClient` | `createVerification`, `getCertificates`, `getSupportedCountries` | Identity verification (KYC/KYB) |
-| `AnchorAssetMovementClient` | `getProvidersForTransfer`, `getProviderByID` → provider: `initiateTransfer`, `getTransferStatus`, `createPersistentForwardingAddress`, `listForwardingAddresses`, `listTransactions`, `shareKYCAttributes` | Cross-chain/cross-rail asset transfers (Keeta ↔ Base, SWIFT, ACH, etc.) |
-| `AnchorUsernameClient` | `resolve`, `resolveMulti`, `claimUsername`, `search`, `getProvider`, `signUsernameTransfer` → provider: `resolve`, `claimUsername`, `releaseUsername`, `search`, `isUsernameValid` | Human-readable on-chain usernames |
-| `AnchorNotificationClient` | `getProviders`, `getProvider` → provider: `registerTarget`, `listTargets`, `deleteTarget`, `createSubscription`, `listSubscriptions`, `deleteSubscription` | Push notification subscriptions (FCM, etc.) |
+| `FX` | `getQuotes`, `getEstimates`, `getPrices`, `listPossibleConversions`, etc. | Foreign exchange and token swaps |
+| `KYC` | `createVerification`, `getCertificates`, `getSupportedCountries` | Identity verification |
+| `AssetMovement` | `getProvidersForTransfer`, `getProviderByID` → provider: `initiateTransfer`, `createPersistentForwardingAddress`, `listTransactions`, `shareKYCAttributes` | Cross-chain/cross-rail transfers |
+| `Username` | `resolve`, `resolveMulti`, `claimUsername`, `search`, `signUsernameTransfer` | On-chain usernames |
+| `Notification` | `getProviders`, `getProvider` → provider: `registerTarget`, `createSubscription`, `listSubscriptions` | Push notifications |
 
-### Anchor Lib
+**Currently discovered lib modules:**
 
-| Target | What It Exposes | When To Use |
+| Module | Type | Key Members |
 |---|---|---|
-| `AnchorResolver` | `getRootMetadata`, `lookup`, and resolution methods | Discovering anchor services and metadata |
-| `AnchorMetadata` | `formatMetadata`, `fullyResolveValuizable` | Building and parsing anchor metadata |
-| `AnchorCertificates` | `Certificate`, `CertificateBuilder`, `SensitiveAttribute`, `SharableCertificateAttributes` — with instance methods: `setPlainAttribute`, `setSensitiveAttribute`, `getAttributeValue` | X.509 certificate management for KYC/identity |
-| `AnchorEncryptedContainer` | Static: `fromEncryptedBuffer`, `fromEncodedBuffer`, `fromPlaintext` — Instance: `grantAccess`, `revokeAccess`, `getPlaintext`, `principals`, `verifySignature` | Encrypting sensitive data with per-account access control |
-| `AnchorURI` | `assertKeetaURIString`, `encodeKeetaURI`, `parseKeetaURI` | Keeta URI parsing and construction |
+| `Resolver` | class | `getRootMetadata`, `lookup`, `listTokens`, `listTransferableAssets`, `clearCache`, `Metadata` (static) |
+| `Certificates` | namespace | `Certificate`, `CertificateBuilder`, `SensitiveAttribute`, `SharableCertificateAttributes` |
+| `EncryptedContainer` | class | `fromPlaintext`, `fromEncryptedBuffer`, `grantAccess`, `revokeAccess`, `getPlaintext`, `verifySignature` |
+| `URI` | namespace | `parseKeetaURI`, `encodeKeetaURI`, `assertKeetaURIString` |
+
+**Future services and modules will auto-appear in the catalog without MCP server changes.**
 
 ---
 

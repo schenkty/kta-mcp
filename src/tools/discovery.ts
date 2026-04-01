@@ -6,6 +6,8 @@ import {
   createUserClient,
   listMethods,
   listProperties,
+  discoverAnchorServices,
+  discoverAnchorLibModules,
   KeetaNet,
   KeetaAnchor,
 } from "./helpers.js";
@@ -15,55 +17,35 @@ export function registerDiscoveryTools(server: McpServer) {
     "keeta_list_sdk_methods",
     `Discover available methods and properties on Keeta SDK objects at runtime. Use this FIRST to understand what operations are available before calling execute tools.
 
-Targets:
-  Core SDK:
-  - "Client" → read-only network client (getAccountInfo, getBalance, getAllBalances, getHeadBlock, getBlock, etc.)
-  - "UserClient" → authenticated client (send, setInfo, generateIdentifier, allBalances, head, chain, updatePermissions, createSwapRequest, etc.)
-  - "Builder" → transaction builder from UserClient.initBuilder() (send, setInfo, modifyTokenSupply, computeBlocks, publish, etc.)
-  - "Account" → static methods on KeetaNet.lib.Account (generateRandomSeed, fromSeed, fromPublicKeyString, generateNetworkAddress, etc.)
-  - "Block" → static Block utilities (Builder, OperationType, NO_PREVIOUS, etc.)
-  - "Permissions" → Permissions class
-  - "Config" → network configuration (getDefaultConfig, etc.)
+The "target" parameter accepts:
 
-  Anchor SDK — Services:
-  - "AnchorFXClient" → FX/swap client (getQuotes, listPossibleConversions, createExchange, etc.)
-  - "AnchorKYCClient" → KYC identity verification client (createVerification, getCertificates, getSupportedCountries)
-  - "AnchorAssetMovementClient" → cross-chain/cross-rail asset transfer client (getProvidersForTransfer, initiateTransfer, createPersistentForwardingAddress, listTransactions, shareKYCAttributes, etc.)
-  - "AnchorUsernameClient" → on-chain username management client (resolve, claimUsername, releaseUsername, search, resolveMulti)
-  - "AnchorNotificationClient" → push notification client (registerTarget, listTargets, deleteTarget, createSubscription, listSubscriptions, deleteSubscription)
+  Core SDK (fixed):
+    "Client"      → read-only network queries
+    "UserClient"  → authenticated operations
+    "Builder"     → batch transaction builder
+    "Account"     → account utilities + enums
+    "Block"       → block types + operation enums
+    "Permissions" → permission construction
+    "Config"      → network configuration
 
-  Anchor SDK — Lib:
-  - "AnchorResolver" → anchor metadata resolver (getRootMetadata, lookup, etc.)
-  - "AnchorMetadata" → anchor metadata utilities (formatMetadata, fullyResolveValuizable, etc.)
-  - "AnchorCertificates" → X.509 certificate utilities for KYC/identity
-  - "AnchorEncryptedContainer" → encrypted data container for sensitive attributes
-  - "AnchorURI" → URI parsing and construction utilities`,
+  Anchor SDK (dynamic — auto-discovers new services):
+    "AnchorCatalog"          → list ALL available anchor services and lib modules (start here!)
+    "AnchorService:<Name>"   → methods on a specific anchor service client (e.g. "AnchorService:FX", "AnchorService:KYC", "AnchorService:AssetMovement", "AnchorService:Username", "AnchorService:Notification", or ANY new service the SDK adds)
+    "AnchorLib:<Name>"       → methods on a specific anchor lib module (e.g. "AnchorLib:Resolver", "AnchorLib:Certificates", "AnchorLib:EncryptedContainer", "AnchorLib:URI", or ANY new module)
+
+When in doubt, start with "AnchorCatalog" to see everything available, then drill into specific services/modules.`,
     {
       target: z
-        .enum([
-          "Client",
-          "UserClient",
-          "Builder",
-          "Account",
-          "Block",
-          "Permissions",
-          "Config",
-          "AnchorFXClient",
-          "AnchorKYCClient",
-          "AnchorAssetMovementClient",
-          "AnchorUsernameClient",
-          "AnchorNotificationClient",
-          "AnchorResolver",
-          "AnchorMetadata",
-          "AnchorCertificates",
-          "AnchorEncryptedContainer",
-          "AnchorURI",
-        ])
-        .describe("SDK object to introspect"),
+        .string()
+        .describe(
+          'SDK target to introspect. Fixed values: "Client", "UserClient", "Builder", "Account", "Block", "Permissions", "Config", "AnchorCatalog". Dynamic: "AnchorService:<Name>" or "AnchorLib:<Name>".'
+        ),
       network: z
         .enum(["main", "test"])
         .default("test")
-        .describe("Network to use for instantiation (needed for Client/UserClient/Builder targets)"),
+        .describe(
+          "Network for instantiation (needed for Client/UserClient/Builder)"
+        ),
     },
     async ({ target, network }) => {
       const net = validateNetwork(network);
@@ -71,7 +53,9 @@ Targets:
       let properties: string[] = [];
       let statics: string[] = [];
       let enums: Record<string, unknown> = {};
+      let extra: Record<string, unknown> = {};
 
+      // ── Core SDK targets ─────────────────────────────────────────
       switch (target) {
         case "Client": {
           const client = createClient(net);
@@ -120,40 +104,9 @@ Targets:
           break;
         }
         case "Permissions": {
-          // Show how to construct permissions
           statics = Object.getOwnPropertyNames(
             KeetaNet.lib.Permissions.prototype
           ).filter((n) => n !== "constructor");
-          break;
-        }
-        case "AnchorResolver": {
-          statics = Object.getOwnPropertyNames(
-            KeetaAnchor.lib.Resolver.prototype
-          ).filter((n) => n !== "constructor");
-          const metadataStatics = Object.getOwnPropertyNames(
-            KeetaAnchor.lib.Resolver.Metadata
-          ).filter(
-            (n) =>
-              typeof (KeetaAnchor.lib.Resolver.Metadata as any)[n] ===
-              "function"
-          );
-          properties = metadataStatics;
-          break;
-        }
-        case "AnchorFXClient": {
-          statics = Object.getOwnPropertyNames(
-            KeetaAnchor.FX.Client.prototype
-          ).filter((n) => n !== "constructor");
-          break;
-        }
-        case "AnchorMetadata": {
-          statics = Object.getOwnPropertyNames(
-            KeetaAnchor.lib.Resolver.Metadata
-          ).filter(
-            (n) =>
-              typeof (KeetaAnchor.lib.Resolver.Metadata as any)[n] ===
-              "function"
-          );
           break;
         }
         case "Config": {
@@ -163,58 +116,142 @@ Targets:
           );
           break;
         }
-        case "AnchorKYCClient": {
-          statics = Object.getOwnPropertyNames(
-            KeetaAnchor.KYC.Client.prototype
-          ).filter((n) => n !== "constructor");
-          break;
-        }
-        case "AnchorAssetMovementClient": {
-          statics = Object.getOwnPropertyNames(
-            KeetaAnchor.AssetMovement.Client.prototype
-          ).filter((n) => n !== "constructor");
-          break;
-        }
-        case "AnchorUsernameClient": {
-          statics = Object.getOwnPropertyNames(
-            KeetaAnchor.Username.Client.prototype
-          ).filter((n) => n !== "constructor");
-          break;
-        }
-        case "AnchorNotificationClient": {
-          statics = Object.getOwnPropertyNames(
-            KeetaAnchor.Notification.Client.prototype
-          ).filter((n) => n !== "constructor");
-          break;
-        }
-        case "AnchorCertificates": {
-          statics = Object.getOwnPropertyNames(KeetaAnchor.lib.Certificates).filter(
-            (n) => typeof (KeetaAnchor.lib.Certificates as any)[n] === "function"
-          );
-          // Also show Certificate class methods if available
-          if ((KeetaAnchor.lib.Certificates as any).Certificate?.prototype) {
-            methods = Object.getOwnPropertyNames(
-              (KeetaAnchor.lib.Certificates as any).Certificate.prototype
-            ).filter((n) => n !== "constructor");
+
+        // ── Anchor Catalog (dynamic) ─────────────────────────────────
+        case "AnchorCatalog": {
+          const services = discoverAnchorServices();
+          const libModules = discoverAnchorLibModules();
+
+          const serviceDetails: Record<string, string[]> = {};
+          for (const [name, ClientClass] of Object.entries(services)) {
+            serviceDetails[name] = Object.getOwnPropertyNames(
+              ClientClass.prototype
+            ).filter(
+              (n: string) => n !== "constructor" && !n.startsWith("_")
+            );
           }
-          break;
-        }
-        case "AnchorEncryptedContainer": {
-          if (KeetaAnchor.lib.EncryptedContainer?.prototype) {
-            methods = Object.getOwnPropertyNames(
-              KeetaAnchor.lib.EncryptedContainer.prototype
-            ).filter((n) => n !== "constructor");
+
+          const libDetails: Record<string, { type: string; members: string[] }> = {};
+          for (const [name, mod] of Object.entries(libModules)) {
+            if (typeof mod === "function") {
+              // Class — show prototype methods + static methods
+              const proto = mod.prototype
+                ? Object.getOwnPropertyNames(mod.prototype).filter(
+                    (n: string) => n !== "constructor"
+                  )
+                : [];
+              const staticMethods = Object.getOwnPropertyNames(mod).filter(
+                (n: string) =>
+                  typeof mod[n] === "function" &&
+                  n !== "prototype" &&
+                  n !== "length" &&
+                  n !== "name"
+              );
+              libDetails[name] = {
+                type: "class",
+                members: [...staticMethods.map((s: string) => `static:${s}`), ...proto],
+              };
+            } else if (typeof mod === "object" && mod !== null) {
+              // Namespace — show exports
+              const exports = Object.getOwnPropertyNames(mod).filter(
+                (n: string) => n !== "default" && n !== "__esModule"
+              );
+              libDetails[name] = {
+                type: "namespace",
+                members: exports,
+              };
+            }
           }
-          statics = Object.getOwnPropertyNames(KeetaAnchor.lib.EncryptedContainer).filter(
-            (n) =>
-              typeof (KeetaAnchor.lib.EncryptedContainer as any)[n] === "function"
-          );
+
+          extra = {
+            services: serviceDetails,
+            libModules: libDetails,
+            usage: {
+              drillIntoService:
+                'Use target "AnchorService:<Name>" (e.g. "AnchorService:FX") to see full method details',
+              drillIntoLib:
+                'Use target "AnchorLib:<Name>" (e.g. "AnchorLib:Resolver") to see full method details',
+              executeService:
+                'Use keeta_anchor_execute with subtarget "service" and serviceName "<Name>" to call service methods',
+              executeLib:
+                'Use keeta_anchor_execute with subtarget "lib" and libModule "<Name>" to call lib methods',
+            },
+          };
           break;
         }
-        case "AnchorURI": {
-          statics = Object.getOwnPropertyNames(KeetaAnchor.lib.URI).filter(
-            (n) => typeof (KeetaAnchor.lib.URI as any)[n] === "function"
-          );
+
+        // ── Dynamic anchor service/lib targets ─────────────────────
+        default: {
+          if (target.startsWith("AnchorService:")) {
+            const serviceName = target.slice("AnchorService:".length);
+            const services = discoverAnchorServices();
+            const ClientClass = services[serviceName];
+            if (!ClientClass) {
+              throw new Error(
+                `Unknown anchor service "${serviceName}". Available: ${Object.keys(services).join(", ")}. Use target "AnchorCatalog" to see all.`
+              );
+            }
+            statics = Object.getOwnPropertyNames(ClientClass.prototype).filter(
+              (n) => n !== "constructor"
+            );
+            // Also check for static methods on the class itself
+            const classMethods = Object.getOwnPropertyNames(ClientClass).filter(
+              (n) =>
+                typeof ClientClass[n] === "function" &&
+                n !== "prototype" &&
+                n !== "length" &&
+                n !== "name"
+            );
+            if (classMethods.length > 0) {
+              extra.classStaticMethods = classMethods;
+            }
+          } else if (target.startsWith("AnchorLib:")) {
+            const moduleName = target.slice("AnchorLib:".length);
+            const modules = discoverAnchorLibModules();
+            const mod = modules[moduleName];
+            if (!mod) {
+              throw new Error(
+                `Unknown anchor lib module "${moduleName}". Available: ${Object.keys(modules).join(", ")}. Use target "AnchorCatalog" to see all.`
+              );
+            }
+            if (typeof mod === "function") {
+              // It's a class
+              methods = Object.getOwnPropertyNames(mod.prototype || {}).filter(
+                (n) => n !== "constructor"
+              );
+              statics = Object.getOwnPropertyNames(mod).filter(
+                (n) =>
+                  typeof mod[n] === "function" &&
+                  n !== "prototype" &&
+                  n !== "length" &&
+                  n !== "name"
+              );
+            } else if (typeof mod === "object" && mod !== null) {
+              // It's a namespace — list its exports with their types
+              for (const [k, v] of Object.entries(mod)) {
+                if (k === "default" || k === "__esModule") continue;
+                if (typeof v === "function") {
+                  if (v.prototype && Object.getOwnPropertyNames(v.prototype).length > 1) {
+                    // It's a class
+                    const classMethods = Object.getOwnPropertyNames(
+                      v.prototype
+                    ).filter((n: string) => n !== "constructor");
+                    statics.push(
+                      `${k} [class: ${classMethods.join(", ")}]`
+                    );
+                  } else {
+                    statics.push(`${k} [function]`);
+                  }
+                } else {
+                  properties.push(`${k} [${typeof v}]`);
+                }
+              }
+            }
+          } else {
+            throw new Error(
+              `Unknown target "${target}". Use one of: Client, UserClient, Builder, Account, Block, Permissions, Config, AnchorCatalog, AnchorService:<Name>, AnchorLib:<Name>`
+            );
+          }
           break;
         }
       }
@@ -226,12 +263,12 @@ Targets:
             text: JSON.stringify(
               {
                 target,
-                methods: methods.length > 0 ? methods : undefined,
-                properties: properties.length > 0 ? properties : undefined,
-                statics: statics.length > 0 ? statics : undefined,
-                enums:
-                  Object.keys(enums).length > 0 ? enums : undefined,
-                hint: "Use keeta_client_execute, keeta_user_client_execute, keeta_builder_execute, or keeta_anchor_execute to call these methods. Arguments that look like Keeta addresses (keeta_...) are auto-resolved to Account objects. Use prefixes for special types: BIGINT:123, PERM:ACCESS,ADMIN, ALGO:TOKEN, ADJUST:SET, OP:SEND, BUFFER_B64:...",
+                ...(methods.length > 0 ? { methods } : {}),
+                ...(properties.length > 0 ? { properties } : {}),
+                ...(statics.length > 0 ? { statics } : {}),
+                ...(Object.keys(enums).length > 0 ? { enums } : {}),
+                ...(Object.keys(extra).length > 0 ? extra : {}),
+                hint: 'Use keeta_client_execute, keeta_user_client_execute, keeta_builder_execute, or keeta_anchor_execute to call methods. Auto-resolved prefixes: keeta_ → Account, BIGINT: → BigInt, PERM: → Permissions, ALGO: → AccountKeyAlgorithm, ADJUST: → AdjustMethod, OP: → OperationType, BUFFER_B64: → Buffer.',
               },
               null,
               2

@@ -235,4 +235,78 @@ export function formatResult(data: unknown): string {
   return JSON.stringify(safeSerialize(data), null, 2);
 }
 
+// ── Dynamic SDK Catalog ──────────────────────────────────────────────
+
+/**
+ * Discover all anchor service namespaces exported by the anchor SDK.
+ * A "service" is any top-level export that has a `.Client` constructor.
+ * Returns: { serviceName: ClientConstructor }
+ */
+export function discoverAnchorServices(): Record<string, any> {
+  const services: Record<string, any> = {};
+  for (const [key, value] of Object.entries(KeetaAnchor)) {
+    if (
+      key === "lib" ||
+      key === "KeetaNet" ||
+      key === "default" ||
+      typeof value !== "object" ||
+      value === null
+    )
+      continue;
+    if ("Client" in value && typeof (value as any).Client === "function") {
+      services[key] = (value as any).Client;
+    }
+  }
+  return services;
+}
+
+/**
+ * Discover all lib modules exported by the anchor SDK's lib namespace.
+ * Returns: { moduleName: moduleObject }
+ */
+export function discoverAnchorLibModules(): Record<string, any> {
+  const modules: Record<string, any> = {};
+  if (!KeetaAnchor.lib || typeof KeetaAnchor.lib !== "object") return modules;
+  for (const [key, value] of Object.entries(KeetaAnchor.lib)) {
+    if (key === "default") continue;
+    modules[key] = value;
+  }
+  return modules;
+}
+
+/**
+ * Instantiate an anchor service client by name.
+ * Automatically discovers the Client constructor from the SDK exports.
+ */
+export function createAnchorServiceClient(
+  serviceName: string,
+  userClient: any,
+  config: Record<string, any> = {}
+): any {
+  const services = discoverAnchorServices();
+  const ClientClass = services[serviceName];
+  if (!ClientClass) {
+    const available = Object.keys(services);
+    throw new Error(
+      `Unknown anchor service "${serviceName}". Available services: ${available.join(", ")}. Use keeta_list_sdk_methods with target "AnchorCatalog" to see all.`
+    );
+  }
+  return new ClientClass(userClient, config);
+}
+
+/**
+ * Resolve an anchor lib module by name.
+ */
+export function getAnchorLibModule(moduleName: string): any {
+  const modules = discoverAnchorLibModules();
+  const mod = modules[moduleName];
+  if (!mod) {
+    const available = Object.keys(modules);
+    throw new Error(
+      `Unknown anchor lib module "${moduleName}". Available modules: ${available.join(", ")}. Use keeta_list_sdk_methods with target "AnchorCatalog" to see all.`
+    );
+  }
+  return mod;
+}
+
 export { KeetaNet, KeetaAnchor };
