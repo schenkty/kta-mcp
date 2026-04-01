@@ -1,5 +1,7 @@
 import * as KeetaNet from "@keetanetwork/keetanet-client";
 import * as KeetaAnchor from "@keetanetwork/anchor";
+import * as TokenMetadata from "@keetanetwork/anchor/lib/token-metadata.js";
+import * as Asset from "@keetanetwork/anchor/lib/asset.js";
 import type { Networks } from "@keetanetwork/keetanet-client/config/index.js";
 import type { JSONSerializable } from "@keetanetwork/keetanet-client/lib/utils/conversion.js";
 
@@ -271,6 +273,8 @@ export function discoverAnchorLibModules(): Record<string, any> {
     if (key === "default") continue;
     modules[key] = value;
   }
+  modules["TokenMetadata"] = TokenMetadata;
+  modules["Asset"] = Asset;
   return modules;
 }
 
