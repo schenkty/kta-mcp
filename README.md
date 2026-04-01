@@ -35,18 +35,41 @@ npm install
 npm run build
 ```
 
-### Configure with Claude Code / Claude Desktop / Any MCP Client
+### Configure (Recommended: Both MCP Servers)
+
+Agents building on Keeta should use **two MCP servers together**:
+
+1. **`keeta-docs`** — The Keeta documentation MCP (hosted by GitBook) provides searchable protocol knowledge: architecture, anchor system, SDK references, tutorials
+2. **`keeta-sdk`** — This server provides the tools to execute operations on the network
+
+#### Claude Code
+
+```bash
+# Add the Keeta docs MCP (read the docs, understand the protocol)
+claude mcp add --transport http keeta-docs https://docs.keeta.com/~gitbook/mcp
+
+# Add the Keeta SDK MCP (execute operations on the network)
+claude mcp add keeta-sdk node /absolute/path/to/kta-mcp/build/index.js
+```
+
+#### Claude Desktop / Other MCP Clients
 
 ```json
 {
   "mcpServers": {
-    "keeta": {
+    "keeta-docs": {
+      "type": "url",
+      "url": "https://docs.keeta.com/~gitbook/mcp"
+    },
+    "keeta-sdk": {
       "command": "node",
       "args": ["/absolute/path/to/kta-mcp/build/index.js"]
     }
   }
 }
 ```
+
+> **Why both?** The docs MCP gives agents the *knowledge* to build correctly (protocol rules, anchor architecture, metadata formats, compliance requirements). The SDK MCP gives agents the *tools* to execute. Using only the SDK server without understanding the protocol is like having a hammer without knowing what you're building.
 
 ### Development
 
@@ -111,20 +134,35 @@ Arguments passed to execution tools are automatically resolved based on prefixes
 
 This section describes the recommended workflow for an AI agent using this MCP server. Follow these patterns for any Keeta operation.
 
-### Step 1: Discover What's Available
+### Step 0: Read the Documentation (keeta-docs MCP)
 
-Always start by introspecting the SDK to understand current capabilities:
+**Before writing any code**, use the Keeta docs MCP server to understand the protocol:
 
 ```
-keeta_list_sdk_methods({ target: "Client" })       → read-only methods
-keeta_list_sdk_methods({ target: "UserClient" })    → authenticated methods
-keeta_list_sdk_methods({ target: "Builder" })       → builder/batch methods
-keeta_list_sdk_methods({ target: "Account" })       → account utilities + enums
-keeta_list_sdk_methods({ target: "Block" })         → block types + operation types
-keeta_list_sdk_methods({ target: "AnchorResolver" })→ anchor metadata methods
-keeta_list_sdk_methods({ target: "AnchorFXClient" })→ FX swap methods
-keeta_list_sdk_methods({ target: "AnchorMetadata" })→ metadata formatting
-keeta_list_sdk_methods({ target: "Config" })        → network configuration
+# Via the keeta-docs MCP server (https://docs.keeta.com/~gitbook/mcp):
+# - Search for "anchors" to understand the anchor system
+# - Search for "block operations" to understand transaction types
+# - Search for "permissions" to understand access control
+# - Search for "certificates" to understand KYC/identity
+# - Search for "tokenization" to understand native token creation
+```
+
+The docs MCP provides full access to https://docs.keeta.com/ — architecture guides, anchor system documentation, SDK references, and tutorials. This is essential context for building anything beyond basic transfers.
+
+You can also read the `keeta://docs/mcp-config` resource from this server for setup details and key documentation links.
+
+### Step 1: Discover What's Available
+
+Introspect the SDK to understand current capabilities:
+
+```
+keeta_list_sdk_methods({ target: "AnchorCatalog" }) → all anchor services & lib modules
+keeta_list_sdk_methods({ target: "Client" })        → read-only methods
+keeta_list_sdk_methods({ target: "UserClient" })     → authenticated methods
+keeta_list_sdk_methods({ target: "Builder" })        → builder/batch methods
+keeta_list_sdk_methods({ target: "Account" })        → account utilities + enums
+keeta_list_sdk_methods({ target: "Block" })          → block types + operation types
+keeta_list_sdk_methods({ target: "Config" })         → network configuration
 ```
 
 ### Step 2: Create an Account

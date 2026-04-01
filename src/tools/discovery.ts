@@ -175,6 +175,8 @@ When in doubt, start with "AnchorCatalog" to see everything available, then dril
                 'Use keeta_anchor_execute with subtarget "service" and serviceName "<Name>" to call service methods',
               executeLib:
                 'Use keeta_anchor_execute with subtarget "lib" and libModule "<Name>" to call lib methods',
+              docsFirst:
+                'IMPORTANT: Before building anchors or complex integrations, connect to the Keeta docs MCP at https://docs.keeta.com/~gitbook/mcp to understand the protocol architecture and anchor system. Read the resource "keeta://docs/mcp-config" for setup instructions.',
             },
           };
           break;
