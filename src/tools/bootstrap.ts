@@ -3,10 +3,13 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import {
   generateSeed,
   accountFromSeed,
+  accountFromPublicKey,
   validateNetwork,
   createUserClient,
   formatResult,
+  safeSerialize,
   KeetaNet,
+  KeetaAnchor,
 } from "./helpers.js";
 
 export function registerBootstrapTools(server: McpServer) {
@@ -150,6 +153,136 @@ Returns: { status, address, amountRequested, currentBalance }`,
     }
   );
 
+  // ── Register Anchor Metadata ──────────────────────────────────────────
+  server.tool(
+    "keeta_register_anchor_metadata",
+    `Register ServiceMetadata on a KeetaNet account, making an anchor discoverable via the Resolver.
+
+Call this after every anchor deployment. Encodes the metadata JSON using Resolver.Metadata.formatMetadata()
+and publishes it to the account via setInfo.
+
+The metadata parameter should match the ServiceMetadata shape:
+  {
+    "version": 1,
+    "currencyMap": { "USD": "keeta_tokenAddress...", "$USDC": "keeta_tokenAddress..." },
+    "services": {
+      "fx": { "my-provider": { "operations": { "getEstimate": "https://..." }, "from": [...] } }
+    }
+  }
+
+Returns: { account, status, metadataEncodedSize, blocksPublished }`,
+    {
+      network: z.enum(["main", "test"]).describe("Network to use"),
+      seed: z.string().describe("Seed of the anchor account"),
+      accountIndex: z
+        .number()
+        .int()
+        .min(0)
+        .default(0)
+        .describe("Account derivation index"),
+      metadata: z
+        .record(z.any())
+        .describe("ServiceMetadata JSON object (version, currencyMap, services)"),
+    },
+    async ({ network, seed, accountIndex, metadata }) => {
+      const net = validateNetwork(network);
+      const account = accountFromSeed(seed, accountIndex);
+      const encoded = KeetaAnchor.lib.Resolver.Metadata.formatMetadata(metadata as any);
+
+      await using userClient = createUserClient(net, account);
+      const builder = (userClient as any).initBuilder();
+      builder.setInfo({ metadata: encoded });
+      await builder.computeBlocks();
+
+      if (typeof (userClient as any).publishBuilder === "function") {
+        await (userClient as any).publishBuilder(builder);
+      } else {
+        await (userClient as any).transmit(builder);
+      }
+
+      const blocks = builder.blocks || [];
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(
+              {
+                account: account.publicKeyString.get(),
+                status: "metadata_registered",
+                metadataEncodedSize: encoded.length,
+                blocksPublished: blocks.length,
+              },
+              null,
+              2
+            ),
+          },
+        ],
+      };
+    }
+  );
+
+  // ── Get Token Info ────────────────────────────────────────────────────
+  server.tool(
+    "keeta_get_token_info",
+    `Get token information for a Keeta token address.
+
+Given a token address (keeta_...), returns the token name, description, decimal places, and raw metadata.
+Essential when building FX or asset-movement anchors that need to understand token precision.
+
+Returns: { address, name, description, decimalPlaces, metadata }`,
+    {
+      network: z.enum(["main", "test"]).describe("Network to use"),
+      tokenAddress: z.string().describe("Token address (keeta_...) to look up"),
+    },
+    async ({ network, tokenAddress }) => {
+      const net = validateNetwork(network);
+      await using userClient = createUserClient(net, null);
+      const accountInfo = await (userClient as any).client.getAccountInfo(
+        accountFromPublicKey(tokenAddress)
+      );
+
+      const tokenInfo: Record<string, unknown> = { address: tokenAddress };
+
+      if (accountInfo?.info) {
+        const info = accountInfo.info;
+        tokenInfo.name = info.name ?? null;
+        tokenInfo.description = info.description ?? null;
+
+        if (info.metadata) {
+          try {
+            const metaBuf = Buffer.isBuffer(info.metadata)
+              ? info.metadata
+              : Buffer.from(String(info.metadata), "base64");
+            const parsed: unknown = JSON.parse(metaBuf.toString("utf-8"));
+            tokenInfo.metadata = parsed;
+            if (
+              parsed !== null &&
+              typeof parsed === "object" &&
+              "decimalPlaces" in parsed &&
+              typeof (parsed as Record<string, unknown>).decimalPlaces === "number"
+            ) {
+              tokenInfo.decimalPlaces = (parsed as Record<string, unknown>).decimalPlaces;
+            }
+          } catch {
+            tokenInfo.metadata = safeSerialize(info.metadata);
+          }
+        }
+      } else {
+        tokenInfo.error = "Account not found or has no info field";
+        tokenInfo.rawAccountInfo = safeSerialize(accountInfo);
+      }
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(tokenInfo, null, 2),
+          },
+        ],
+      };
+    }
+  );
+
   server.tool(
     "keeta_get_network_config",
     `Get the configuration for a Keeta network, including the network ID, base token address, and network account address.
@@ -184,4 +317,5 @@ Returns: { networkAlias, networkId, baseToken, networkAddress }`,
       };
     }
   );
+
 }
