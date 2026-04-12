@@ -9,6 +9,7 @@ import {
   resolveArgs,
   resolveArg,
   formatResult,
+  listMethods,
   createAnchorServiceClient,
   getAnchorLibModule,
   discoverAnchorServices,
@@ -46,8 +47,9 @@ Arguments are auto-resolved:
       const client = createClient(net);
       const fn = (client as any)[method];
       if (typeof fn !== "function") {
+        const available = listMethods(client);
         throw new Error(
-          `"${method}" is not a method on Client. Use keeta_list_sdk_methods to see available methods.`
+          `"${method}" is not a method on Client. Available methods: ${available.join(", ")}`
         );
       }
       const resolved = resolveArgs(args);
@@ -113,8 +115,9 @@ Arguments are auto-resolved (see keeta_client_execute for resolution rules).`,
 
       const fn = (userClient as any)[method];
       if (typeof fn !== "function") {
+        const available = listMethods(userClient);
         throw new Error(
-          `"${method}" is not a method on UserClient. Use keeta_list_sdk_methods to see available methods.`
+          `"${method}" is not a method on UserClient. Available methods: ${available.join(", ")}`
         );
       }
       const resolved = resolveArgs(args);
@@ -197,8 +200,9 @@ The "options" field in each operation is passed as the last argument (common for
       for (const op of operations) {
         const fn = builder[op.method];
         if (typeof fn !== "function") {
+          const available = listMethods(builder);
           throw new Error(
-            `"${op.method}" is not a method on Builder. Use keeta_list_sdk_methods with target "Builder" to see available methods.`
+            `"${op.method}" is not a method on Builder. Available methods: ${available.join(", ")}`
           );
         }
         const resolved = resolveArgs(op.args);
@@ -214,10 +218,15 @@ The "options" field in each operation is passed as the last argument (common for
 
       if (autoPublish) {
         await builder.computeBlocks();
-        await builder.publish();
+        if (typeof (userClient as any).publishBuilder === "function") {
+          await (userClient as any).publishBuilder(builder);
+        } else {
+          await builder.publish();
+        }
       }
 
-      const blockHashes = (builder.blocks || []).map((b: any) =>
+      const blocks = builder.blocks || [];
+      const blockHashes = blocks.map((b: any) =>
         b.hash?.toString?.() ?? String(b.hash)
       );
 
@@ -229,7 +238,8 @@ The "options" field in each operation is passed as the last argument (common for
               {
                 account: account.publicKeyString.get(),
                 operationCount: operations.length,
-                blocksPublished: blockHashes.length,
+                blocksComputed: blocks.length,
+                blocksPublished: autoPublish ? blocks.length : 0,
                 blockHashes,
                 status: autoPublish ? "published" : "built_not_published",
               },
@@ -343,8 +353,9 @@ Arguments are auto-resolved (see keeta_client_execute for resolution rules).`,
                 };
               }
             }
+            const available = listMethods(client);
             throw new Error(
-              `"${method}" is not a method on ${serviceName}.Client. Use keeta_list_sdk_methods with target "AnchorService:${serviceName}" to see available methods.`
+              `"${method}" is not a method on ${serviceName}.Client. Available methods: ${available.join(", ")}`
             );
           }
           result = await fn.apply(client, resolved);
@@ -374,8 +385,10 @@ Arguments are auto-resolved (see keeta_client_execute for resolution rules).`,
                 resolved.slice(1)
               );
             } else {
+              const staticMethods = Object.getOwnPropertyNames(mod).filter(k => typeof mod[k] === "function" && k !== "constructor");
+              const instanceMethods = mod.prototype ? Object.getOwnPropertyNames(mod.prototype).filter(k => typeof mod.prototype[k] === "function" && k !== "constructor") : [];
               throw new Error(
-                `"${method}" is not a method on ${libModule}. Use keeta_list_sdk_methods with target "AnchorLib:${libModule}".`
+                `"${method}" is not a method on ${libModule}. Static methods: ${staticMethods.join(", ") || "none"}. Instance methods: ${instanceMethods.join(", ") || "none"}`
               );
             }
           } else if (typeof mod === "object" && mod !== null) {
@@ -402,8 +415,11 @@ Arguments are auto-resolved (see keeta_client_execute for resolution rules).`,
                 }
               }
               if (!found) {
+                const exports = Object.entries(mod)
+                  .map(([k, v]) => `${k} (${typeof v})`)
+                  .join(", ");
                 throw new Error(
-                  `"${method}" is not a method on ${libModule}. Use keeta_list_sdk_methods with target "AnchorLib:${libModule}".`
+                  `"${method}" is not a method on ${libModule}. Available exports: ${exports}`
                 );
               }
             }
@@ -416,8 +432,10 @@ Arguments are auto-resolved (see keeta_client_execute for resolution rules).`,
         case "metadata": {
           const fn = (KeetaAnchor.lib.Resolver.Metadata as any)[method];
           if (typeof fn !== "function") {
+            const available = Object.getOwnPropertyNames(KeetaAnchor.lib.Resolver.Metadata)
+              .filter(k => typeof (KeetaAnchor.lib.Resolver.Metadata as any)[k] === "function");
             throw new Error(
-              `"${method}" is not a static method on Resolver.Metadata. Use keeta_list_sdk_methods with target "AnchorLib:Resolver".`
+              `"${method}" is not a static method on Resolver.Metadata. Available methods: ${available.join(", ")}`
             );
           }
           result = await fn.apply(KeetaAnchor.lib.Resolver.Metadata, resolved);
